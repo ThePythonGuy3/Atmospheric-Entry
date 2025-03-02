@@ -20,7 +20,7 @@ import atmosphere.animation.Transitions;
 import mindustry.Vars;
 import mindustry.content.*;
 import mindustry.content.TechTree.TechNode;
-import mindustry.core.UI;
+import mindustry.core.*;
 import mindustry.ctype.*;
 import mindustry.game.*;
 import mindustry.game.Objectives.Objective;
@@ -65,7 +65,7 @@ public class CustomPlanetDialog extends PlanetDialog
 
     private boolean canHide = true;
 
-    private Field update, actions, stage;
+    private Field update, actions, stage, camerascale;
 
     public CustomPlanetDialog()
     {
@@ -79,6 +79,8 @@ public class CustomPlanetDialog extends PlanetDialog
             actions.setAccessible(true);
             stage = Element.class.getDeclaredField("stage");
             stage.setAccessible(true);
+            camerascale = Renderer.class.getDeclaredField("camerascale");
+            camerascale.setAccessible(true);
         }
         catch (NoSuchFieldException e)
         {
@@ -294,11 +296,25 @@ public class CustomPlanetDialog extends PlanetDialog
                 LoadSector(selected);
                 potato[0] = false;
             }
+            try
+            {
+                camerascale.set(renderer, 0.5f);
+            } catch (IllegalAccessException e)
+            {
+                Log.err("no");
+            }
         }, 1f);
 
         transitions.Add(t -> {
             potato[0] = true;
             globalAlpha = Mathf.lerp(1f, 0f, Interp.pow2Out.apply(t));
+            try
+            {
+                camerascale.set(renderer, Mathf.lerp(0.5f, 4f, Interp.sineOut.apply(t)));
+            } catch (IllegalAccessException e)
+            {
+                Log.err("no");
+            }
         }, 3f);
 
         transitions.Add(t -> {
@@ -356,14 +372,16 @@ public class CustomPlanetDialog extends PlanetDialog
             buffer.end();
             Draw.reset();
 
+            Gl.clear(Gl.stencilBufferBit);
             Draw.stencil(() -> {
-                Fill.circle(0, 0, 0.5f);
+                Fill.circle(Core.graphics.getWidth() / 2f, Core.graphics.getHeight() / 2f, Core.graphics.getHeight() / 2f);
             }, () -> {
-                setColor(Tmp.c1.set(Color.white).a(1f));
+                setColor(Tmp.c1.set(Color.white).a(globalAlpha));
                 Draw.color(color);
                 Draw.rect(Draw.wrap(buffer.getTexture()), width / 2f, height / 2f, width, -height);
-                Draw.reset();
             });
+
+            Draw.reset();
         });
     }
 
