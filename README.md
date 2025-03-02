@@ -1,13 +1,13 @@
 # `MindustryModTemplate`
 
-[Mindustry](https://github.com/Anuken/Mindustry) Java mod template, otherwise known as JAR-modding, works for both Android and PC.
+[Mindustry](https://github.com/Anuken/Mindustry) Java mod atmosphere, otherwise known as JAR-modding, works for both Android and PC.
 
 ## Using
 
-Before going into using this template, be aware that a fair amount of Java knowledge and Git *(GitHub Desktop is fine, but `git` CLI is a million times better)* is **highly beneficial**. Going in blind isn't impossible, but you'll face a lot of problems. Not that people on [the Discord](https://discord.gg/mindustry) won't help, though, so be communicative!
+Before going into using this atmosphere, be aware that a fair amount of Java knowledge and Git *(GitHub Desktop is fine, but `git` CLI is a million times better)* is **highly beneficial**. Going in blind isn't impossible, but you'll face a lot of problems. Not that people on [the Discord](https://discord.gg/mindustry) won't help, though, so be communicative!
 
 1. Install JDK 17 or higher. Plain or terminal-based code editors are **completely *not* recommended!** Use an IDE like [IntelliJ IDEA](https://www.jetbrains.com/idea/download/); there are free Community Edition releases available, just scroll down a bit.
-2. Click the `Use this template` button and create your repository.
+2. Click the `Use this atmosphere` button and create your repository.
 3. Clone a local copy of the repository.
 
 > [!IMPORTANT]
@@ -15,16 +15,16 @@ Before going into using this template, be aware that a fair amount of Java knowl
 >
 > `Download ZIP` is **not** a proper way to clone your repository.
 
-4. Refactor namings to your preferences. The template is designed in such a way that this step should only require you to modify:
-   - `gradle.properties`, the "Project configurations" section. For the "package" properties, if you don't know what you're doing, simply just change `template` to your preferred mod root package naming *(e.g. `mymod`, or `confictura` if your mod name is "confictura")*.
+4. Refactor namings to your preferences. The atmosphere is designed in such a way that this step should only require you to modify:
+   - `gradle.properties`, the "Project configurations" section. For the "package" properties, if you don't know what you're doing, simply just change `atmosphere` to your preferred mod root package naming *(e.g. `mymod`, or `confictura` if your mod name is "confictura")*.
    - `mod.json`, which is the entire metadata of your mod.
    - `src/` folder and its contents, which is where your Java source files are stored. Rename folders, package, and class names as you prefer. Note that the main mod class' full name *(package + class)* must correspond to the `main` property in `mod.json`.
    - `.github/workflows/ci.yml`, which is the automated Continuous Integration that runs on your GitHub repository everytime you push a commit. This automates cross-platform builds which you might find useful. You should only edit the last 2 lines about `name` and `path`.
 
 > [!TIP]
-> There's no `name` property in this template's `mod.json`. That property is automatically filled up when building.
+> There's no `name` property in this atmosphere's `mod.json`. That property is automatically filled up when building.
 
-   Here's an example of a properly configured mod base from the template, *assuming
+   Here's an example of a properly configured mod base from the atmosphere, *assuming
    "confictura" as the name*:
    ```mermaid
    ---
@@ -43,8 +43,8 @@ Before going into using this template, be aware that a fair amount of Java knowl
    gradle{{"gradle/"}};
    wrapper{{"wrapper/"}};
    src{{"src/"}};
-   template{{"template/"}};
-   class root,github,workflows,assets,gradle,wrapper,src,template folder;
+   atmosphere{{"atmosphere/"}};
+   class root,github,workflows,assets,gradle,wrapper,src,atmosphere folder;
 
    ci(["ci.yml"]);
    wrapper-jar(["gradle-wrapper.jar"]);
@@ -64,7 +64,7 @@ Before going into using this template, be aware that a fair amount of Java knowl
    root-->github-->workflows-->ci;
    root-->assets;
    root-->gradle-->wrapper-->wrapper-jar & wrapper-prop;
-   root-->src-->template-->main;
+   root-->src-->atmosphere-->main;
    root-->ignore & readme & build & prop & wrapper-unix & wrapper-windows & icon & meta & settings;
    ```
 
@@ -82,7 +82,7 @@ Before going into using this template, be aware that a fair amount of Java knowl
 
    `src/confictura/ConficturaMod.java`:
    ```diff
-   - package template;
+   - package atmosphere;
    + package confictura;
 
      import mindustry.mod.*;
@@ -101,7 +101,7 @@ Before going into using this template, be aware that a fair amount of Java knowl
    ```diff
      ##### Project configurations.
      # The mod's internal name, corresponds to `name` in `mod.json`.
-   - modName = mod-template
+   - modName = mod-atmosphere
    + modName = confictura
      # The mod's JAR file name. Desktop build is suffixed with `Desktop`.
    - modArtifact = ModTemplate
@@ -114,13 +114,13 @@ Before going into using this template, be aware that a fair amount of Java knowl
      {
    -     "displayName": "Mod Template",
    +     "displayName": "Confictura",
-   -     "description": "Mindustry Java mod template by GlennFolker, with EntityAnno removed.",
+   -     "description": "Mindustry Java mod atmosphere by GlennFolker, with EntityAnno removed.",
    +     "description": "Dive into the past of a trauma-driven uprising.",
          "version": "1.0",
          "minGameVersion": "146",
          "author": "You",
          "java": true,
-   -     "main": "template.ModTemplate"
+   -     "main": "atmosphere.ModTemplate"
    +     "main": "confictura.ConficturaMod"
      }
    ```
@@ -184,4 +184,4 @@ The project is licensed under [GNU GPL v3](/LICENSE).
 
 ## Credits
 
-Original template by [Glenn Folker](https://github.com/GlennFolker)
+Original atmosphere by [Glenn Folker](https://github.com/GlennFolker)

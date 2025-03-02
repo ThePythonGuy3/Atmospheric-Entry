@@ -1,9 +1,9 @@
 {
-    "displayName": "Mod Template",
-    "description": "Mindustry Java mod template by GlennFolker, with EntityAnno removed.",
+    "displayName": "Atmospheric Entry",
+    "description": "Atmospheric Entry.",
     "version": "v1.0",
     "minGameVersion": "146",
-    "author": "You",
+    "author": "PyGuy",
     "java": true,
-    "main": "template.ModTemplate"
+    "main": "atmosphere.Atmosphere"
 }
