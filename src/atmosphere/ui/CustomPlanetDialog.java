@@ -9,7 +9,7 @@ import arc.graphics.g2d.*;
 import arc.input.KeyCode;
 import arc.math.*;
 import arc.math.geom.Vec3;
-import arc.scene.Element;
+import arc.scene.*;
 import arc.scene.event.*;
 import arc.scene.style.TextureRegionDrawable;
 import arc.scene.ui.*;
@@ -26,14 +26,17 @@ import mindustry.game.*;
 import mindustry.game.Objectives.Objective;
 import mindustry.game.SectorInfo.ExportStat;
 import mindustry.gen.*;
-import mindustry.graphics.Pal;
-import mindustry.graphics.g3d.*;
+import mindustry.graphics.*;
+import mindustry.graphics.g3d.PlanetGrid;
 import mindustry.graphics.g3d.PlanetGrid.Ptile;
 import mindustry.input.Binding;
 import mindustry.maps.SectorDamage;
 import mindustry.type.*;
 import mindustry.ui.*;
 import mindustry.ui.dialogs.*;
+import mindustry.world.blocks.storage.CoreBlock;
+
+import java.lang.reflect.Field;
 
 import static arc.Core.*;
 import static mindustry.Vars.*;
@@ -48,20 +51,39 @@ public class CustomPlanetDialog extends PlanetDialog
             "hammer", "warning", "tree", "admin", "map", "modePvp", "terrain",
             "modeSurvival", "commandRally", "commandAttack",
     };
-    private static final float zoomMidTarget = 2f, zoomFinalTarget = 0.001f;
-    private final Vec3 initialVector = new Vec3(), targetVector = new Vec3(), finalTargetVector = new Vec3(), originSectorVector = new Vec3().set(Vec3.Z);
-    private float fov = 60f;
+    private static final float zoomMidTarget = 2f, zoomFinalTarget = 0.1f;
+    private final Vec3 initialVector = new Vec3(), targetVector = new Vec3(), originSectorVector = new Vec3().set(Vec3.Z);
     private final Transitions transitions = new Transitions();
+    public boolean shouldRenderSectors = true, shouldRenderGUI = true;
+    private float fov = 60f;
     private float initialZoom = 0f;
     private float initialAlpha = 0f;
     private Texture[] planetTextures;
-    public boolean shouldRenderSectors = true, shouldRenderGUI = true;
+    private Color maskColor = Color.white;
+    private float maskAlpha = 0f;
+    private float globalAlpha = 1f;
 
-    private Element planetTable, infoTable;
+    private boolean canHide = true;
+
+    private Field update, actions, stage;
 
     public CustomPlanetDialog()
     {
         super();
+
+        try
+        {
+            update = Element.class.getDeclaredField("update");
+            update.setAccessible(true);
+            actions = Element.class.getDeclaredField("actions");
+            actions.setAccessible(true);
+            stage = Element.class.getDeclaredField("stage");
+            stage.setAccessible(true);
+        }
+        catch (NoSuchFieldException e)
+        {
+            Log.err("what");
+        }
 
         state.renderer = this;
         state.drawUi = true;
@@ -236,6 +258,7 @@ public class CustomPlanetDialog extends PlanetDialog
         }
 
         transitions.Add(t -> {
+            canHide = false;
             shouldRenderGUI = false;
             state.uiAlpha = Mathf.lerp(initialAlpha, 0f, Interp.pow2Out.apply(t));
         }, 0.5f);
@@ -250,14 +273,42 @@ public class CustomPlanetDialog extends PlanetDialog
         }, 3f);
 
         transitions.Add(t -> {
-            fov = Mathf.lerp(60f, 0.2f, Interp.pow5.apply(t));
+            fov = Mathf.lerp(60f, 1f, Interp.pow5.apply(t));
             zoom = state.zoom = Mathf.lerp(zoomMidTarget, zoomFinalTarget, Interp.pow2.apply(t));
+
+            if (t > 0.8f)
+            {
+                state.uiAlpha = Mathf.lerp(0f, 1f, Interp.pow5.apply((t - 0.8f) / 0.2f));
+            }
+        }, 3f);
+
+        boolean[] potato = new boolean[]{ true };
+        transitions.Add(t -> {
+            potato[0] = true;
+            maskAlpha = Interp.pow2Out.apply(t);
+        }, 2f);
+
+        transitions.Add(t -> {
+            if (potato[0])
+            {
+                LoadSector(selected);
+                potato[0] = false;
+            }
+        }, 1f);
+
+        transitions.Add(t -> {
+            potato[0] = true;
+            globalAlpha = Mathf.lerp(1f, 0f, Interp.pow2Out.apply(t));
         }, 3f);
 
         transitions.Add(t -> {
-            Tmp.v33.set(targetVector);
-            state.camPos.set(Tmp.v33.lerp(finalTargetVector, t));
-        }, 2f);
+            canHide = true;
+            if (potato[0])
+            {
+                hide();
+                potato[0] = false;
+            }
+        }, 0.5f);
 
         transitions.Add(t -> {
             fov = 60f;
@@ -266,79 +317,54 @@ public class CustomPlanetDialog extends PlanetDialog
             zoom = state.zoom = initialZoom;
             state.camPos.set(initialVector);
             state.uiAlpha = initialAlpha;
+            maskAlpha = 0f;
+            globalAlpha = 1f;
         }, 0.001f);
 
         Events.run(EventType.Trigger.universeDrawBegin, () -> {
-           renderer.planets.cam.fov = fov;
+            renderer.planets.cam.fov = fov;
         });
     }
 
-    /**
-     * show with no limitations, just as a map.
-     */
     @Override
-    public Dialog show()
+    public void hide()
     {
-        if (net.client())
-        {
-            ui.showInfo("@map.multiplayer");
-            return this;
-        }
+        if (!canHide) return;
 
-        //view current planet by default
-        if (Vars.state.rules.sector != null)
-        {
-            state.planet = Vars.state.rules.sector.planet;
-            settings.put("lastplanet", state.planet.name);
-        }
+        super.hide();
+    }
 
-        if (!selectable(state.planet))
-        {
-            state.planet = Planets.serpulo;
-        }
+    @Override
+    public void hide(Action action)
+    {
+        if (!canHide) return;
 
-        rebuildButtons();
-        mode = look;
-        state.otherCamPos = null;
-        selected = hovered = launchSector = null;
-        launching = false;
+        super.hide(action);
+    }
 
-        zoom = 1f;
-        state.zoom = 1f;
-        state.uiAlpha = 0f;
-        launchSector = Vars.state.getSector();
-        presetShow = 0f;
-        showed = false;
-        listener = s -> {
-        };
+    @Override
+    public void draw()
+    {
+        Draw.draw(Draw.z(), () -> {
+            buffer.resize(Core.graphics.getWidth(), Core.graphics.getHeight());
+            buffer.begin(Color.clear);
 
-        newPresets.clear();
+            Fill.rect(width / 2f, 0, width / 2f, height);
+            setColor(Color.white);
+            super.draw();
 
-        //announce new presets
-        for (SectorPreset preset : content.sectors())
-        {
-            if (preset.unlocked() && !preset.alwaysUnlocked && !preset.sector.info.shown && !preset.sector.hasBase() && preset.planet == state.planet)
-            {
-                newPresets.add(preset.sector);
-                preset.sector.info.shown = true;
-                preset.sector.saveInfo();
-            }
-        }
+            buffer.end();
+            Draw.reset();
 
-        if (newPresets.any())
-        {
-            newPresets.add(state.planet.getLastSector());
-        }
-
-        newPresets.reverse();
-        updateSelected();
-
-        if (state.planet.getLastSector() != null)
-        {
-            lookAt(state.planet.getLastSector());
-        }
-
-        return super.show();
+            Draw.stencil(() -> {
+                Fill.circle(0, 0, 0.5f);
+            }, () -> {
+                setColor(Tmp.c1.set(Color.white).a(1f));
+                Draw.color(color);
+                Draw.rect(Draw.wrap(buffer.getTexture()), width / 2f, height / 2f, width, -height);
+                Draw.reset();
+            });
+        });
     }
 
     public void rebuildButtons()
@@ -361,6 +387,25 @@ public class CustomPlanetDialog extends PlanetDialog
             buttons.add().growX();
             addTech();
         }
+    }
+
+    @Override
+    public void closeOnBack()
+    {
+        closeOnBack(() -> {
+        });
+    }
+
+    @Override
+    public void closeOnBack(Runnable callback)
+    {
+        keyDown(key -> {
+            if (!transitions.IsRunning() && (key == KeyCode.escape || key == KeyCode.back))
+            {
+                Core.app.post(this::hide);
+                callback.run();
+            }
+        });
     }
 
     public void addBack()
@@ -386,66 +431,6 @@ public class CustomPlanetDialog extends PlanetDialog
         dialog.addCloseButton();
 
         dialog.add("@sectors.captured");
-    }
-
-    //TODO not fully implemented, cutscene needed
-    public void showPlanetLaunch(Sector sector, Cons<Sector> listener)
-    {
-        selected = null;
-        hovered = null;
-        launching = false;
-        this.listener = listener;
-        launchSector = sector;
-
-        //automatically select next planets;
-        if (sector.planet.launchCandidates.size == 1)
-        {
-            state.planet = sector.planet.launchCandidates.first();
-            state.otherCamPos = sector.planet.position;
-            state.otherCamAlpha = 0f;
-
-            //unlock and highlight sector
-            var destSec = state.planet.sectors.get(state.planet.startSector);
-            var preset = destSec.preset;
-            if (preset != null)
-            {
-                preset.unlock();
-            }
-            selected = destSec;
-            updateSelected();
-            rebuildExpand();
-        }
-
-        //TODO pan over to correct planet
-
-        //update view to sector
-        zoom = 1f;
-        state.zoom = 1f;
-        state.uiAlpha = 0f;
-
-        mode = planetLaunch;
-
-        super.show();
-    }
-
-    public void showSelect(Sector sector, Cons<Sector> listener)
-    {
-        selected = null;
-        hovered = null;
-        launching = false;
-        this.listener = listener;
-
-        //update view to sector
-        lookAt(sector);
-        zoom = 1f;
-        state.zoom = 1f;
-        state.uiAlpha = 0f;
-        state.otherCamPos = null;
-        launchSector = sector;
-
-        mode = select;
-
-        super.show();
     }
 
     public void lookAt(Sector sector)
@@ -677,13 +662,14 @@ public class CustomPlanetDialog extends PlanetDialog
 
         margin(0f);
 
-        infoTable = new Table(t -> {
+        Element infoTable = new Table(t -> {
             t.touchable = Touchable.disabled;
             t.top();
             t.label(() -> mode == select ? "@sectors.select" : "").style(Styles.outlineLabel).color(Pal.accent);
         }).visible(() -> shouldRenderGUI);
 
-        planetTable = new Table(t -> {
+        //less padding
+        Element planetTable1 = new Table(t -> {
             t.top().left();
             ScrollPane pane = new ScrollPane(null, Styles.smallPane);
             t.add(pane).colspan(2).row();
@@ -772,6 +758,12 @@ public class CustomPlanetDialog extends PlanetDialog
                     public void draw()
                     {
                         planets.render(state);
+
+                        if (maskAlpha > 0f)
+                        {
+                            Draw.color(maskColor, maskAlpha);
+                            Tex.whiteui.draw(0, 0, Core.graphics.getWidth(), Core.graphics.getHeight());
+                        }
                     }
                 },
                 //info text
@@ -779,7 +771,7 @@ public class CustomPlanetDialog extends PlanetDialog
                 buttons.visible(() -> shouldRenderGUI),
 
                 // planet selection
-                planetTable,
+                planetTable1,
 
                 new Table(c -> {
                     expandTable = c;
@@ -900,117 +892,56 @@ public class CustomPlanetDialog extends PlanetDialog
     @Override
     public void act(float delta)
     {
-        super.act(delta);
-
-        //update lerp
-        if (state.otherCamPos != null)
+        if (transitions.IsRunning())
         {
-            state.otherCamAlpha = Mathf.lerpDelta(state.otherCamAlpha, 1f, 0.05f);
-            state.camPos.set(0f, camLength, 0.1f);
-
-            if (Mathf.equal(state.otherCamAlpha, 1f, 0.01f))
+            try
             {
-                //TODO change zoom too
-                state.camPos.set(Tmp.v31.set(state.otherCamPos).lerp(state.planet.position, state.otherCamAlpha).add(state.camPos).sub(state.planet.position));
-
-                state.otherCamPos = null;
-                //announce new sector
-                newPresets.add(state.planet.sectors.get(state.planet.startSector));
-
-            }
-        }
-
-        if (hovered != null && !mobile && state.planet.hasGrid())
-        {
-            addChild(hoverLabel);
-            hoverLabel.toFront();
-            hoverLabel.touchable = Touchable.disabled;
-            hoverLabel.color.a = state.uiAlpha;
-
-            Vec3 pos = planets.cam.project(Tmp.v31.set(hovered.tile.v).setLength(PlanetRenderer.outlineRad * state.planet.radius).rotate(Vec3.Y, -state.planet.getRotation()).add(state.planet.position));
-            hoverLabel.setPosition(pos.x - Core.scene.marginLeft, pos.y - Core.scene.marginBottom, Align.center);
-
-            hoverLabel.getText().setLength(0);
-            if (hovered != null)
-            {
-                StringBuilder tx = hoverLabel.getText();
-                if (!canSelect(hovered))
+                @SuppressWarnings("unchecked")
+                Seq<Action> actions = (Seq<Action>) (this.actions.get(this));
+                Scene stageV = (Scene) stage.get(this);
+                if (actions.size > 0)
                 {
-                    if (mode == planetLaunch)
+                    if (stageV != null && stageV.getActionsRequestRendering()) Core.graphics.requestRendering();
+                    for (int i = 0; i < actions.size; i++)
                     {
-                        tx.append("[gray]").append(Iconc.cancel);
-                    }
-                    else
-                    {
-                        tx.append("[gray]").append(Iconc.lock).append(" ").append(Core.bundle.get("locked"));
+                        Action action = actions.get(i);
+                        if (action.act(delta) && i < actions.size)
+                        {
+                            Action current = actions.get(i);
+                            int actionIndex = current == action ? i : actions.indexOf(action, true);
+                            if (actionIndex != -1)
+                            {
+                                actions.remove(actionIndex);
+                                action.setActor(null);
+                                i--;
+                            }
+                        }
                     }
                 }
-                else
+
+                if (touchablility != null) this.touchable = touchablility.get();
+                Runnable updateV = (Runnable) update.get(this);
+                if (updateV != null) updateV.run();
+            }
+            catch (IllegalAccessException e)
+            {
+                Log.err("what");
+            }
+
+            Element[] actors = children.begin();
+            for (int i = 0, n = children.size; i < n; i++)
+            {
+                if (actors[i].visible)
                 {
-                    tx.append("[accent][[ [white]").append(hovered.name()).append("[accent] ]");
+                    actors[i].act(delta);
                 }
+                actors[i].updateVisibility();
             }
-            hoverLabel.invalidateHierarchy();
+            children.end();
+
+            updateVisibility();
         }
-        else
-        {
-            hoverLabel.remove();
-        }
-
-        if (launching && selected != null)
-        {
-            lookAt(selected, 0.1f);
-        }
-
-        if (showing())
-        {
-            Sector to = newPresets.peek();
-
-            presetShow += Time.delta;
-
-            lookAt(to, 0.11f);
-            zoom = 0.75f;
-
-            if (presetShow >= 20f && !showed && newPresets.size > 1)
-            {
-                showed = true;
-                ui.announce(Iconc.lockOpen + " [accent]" + to.name(), 2f);
-            }
-
-            if (presetShow > sectorShowDuration)
-            {
-                newPresets.pop();
-                showed = false;
-                presetShow = 0f;
-            }
-        }
-
-        if (state.planet.hasGrid())
-        {
-            hovered = Core.scene.getDialog() == this ? state.planet.getSector(planets.cam.getMouseRay(), PlanetRenderer.outlineRad * state.planet.radius) : null;
-        }
-        else if (state.planet.isLandable())
-        {
-            boolean wasNull = selected == null;
-            //always have the first sector selected.
-            //TODO better support for multiple sectors in gridless planets?
-            hovered = selected = state.planet.sectors.first();
-
-            //autoshow
-            if (wasNull)
-            {
-                updateSelected();
-            }
-        }
-        else
-        {
-            hovered = selected = null;
-        }
-
-        state.zoom = Mathf.lerpDelta(state.zoom, zoom, 0.4f);
-
-        if (transitions.IsRunning()) return;
-        state.uiAlpha = Mathf.lerpDelta(state.uiAlpha, Mathf.num(state.zoom < 1.9f), 0.1f);
+        else super.act(delta);
     }
 
     public void displayItems(Table c, float scl, ObjectMap<Item, ExportStat> stats, String name)
@@ -1433,10 +1364,14 @@ public class CustomPlanetDialog extends PlanetDialog
         }
 
         StartAnimation();
+    }
 
-        /*if (mode == look && !sector.hasBase())
+    private void LoadSector(Sector sector)
+    {
+        ((CustomLoadingFragment) ui.loadfrag).allowed = false;
+
+        if (mode == look && !sector.hasBase())
         {
-            shouldHide = false;
             Sector from = findLauncher(sector);
 
             if (from == null)
@@ -1456,41 +1391,31 @@ public class CustomPlanetDialog extends PlanetDialog
                     from.removeItems(loadout.requirements());
                     from.removeItems(universe.getLaunchResources());
 
-                    Events.fire(new SectorLaunchLoadoutEvent(sector, from, loadout));
+                    Events.fire(new EventType.SectorLaunchLoadoutEvent(sector, from, loadout));
 
-                    if (settings.getBool("skipcoreanimation"))
-                    {
-                        //just... go there
-                        control.playSector(from, sector);
-                        //hide only after load screen is shown
-                        Time.runTask(8f, this::hide);
-                    }
-                    else
-                    {
-                        //hide immediately so launch sector is visible
-                        hide();
+                    //hide immediately so launch sector is visible
+                    //hide();
 
-                        //allow planet dialog to finish hiding before actually launching
-                        Time.runTask(5f, () -> {
-                            Runnable doLaunch = () -> {
-                                renderer.showLaunch(schemCore);
-                                //run with less delay, as the loading animation is delayed by several frames
-                                Time.runTask(coreLandDuration - 8f, () -> control.playSector(from, sector));
-                            };
+                    //allow planet dialog to finish hiding before actually launching
+                    Time.runTask(5f, () -> {
+                        Runnable doLaunch = () -> {
+                            renderer.showLaunch(schemCore);
+                            //run with less delay, as the loading animation is delayed by several frames
+                            Time.runTask(coreLandDuration - 8f, () -> control.playSector(from, sector));
+                        };
 
-                            //load launchFrom sector right before launching so animation is correct
-                            if (!from.isBeingPlayed())
-                            {
-                                //run *after* the loading animation is done
-                                Time.runTask(9f, doLaunch);
-                                control.playSector(from);
-                            }
-                            else
-                            {
-                                doLaunch.run();
-                            }
-                        });
-                    }
+                        //load launchFrom sector right before launching so animation is correct
+                        if (!from.isBeingPlayed())
+                        {
+                            //run *after* the loading animation is done
+                            Time.runTask(9f, doLaunch);
+                            control.playSector(from);
+                        }
+                        else
+                        {
+                            doLaunch.run();
+                        }
+                    });
                 });
             }
         }
@@ -1514,7 +1439,7 @@ public class CustomPlanetDialog extends PlanetDialog
             control.playSector(sector);
         }
 
-        if (shouldHide) hide();*/
+        ((CustomLoadingFragment) ui.loadfrag).allowed = true;
     }
 
     private void InterpolateRotation(Vec3 initial, Vec3 target, float t, Vec3 set)
@@ -1535,14 +1460,14 @@ public class CustomPlanetDialog extends PlanetDialog
 
             initialVector.set(state.camPos);
 
+            maskColor = selected.planet.atmosphereColor.cpy();
+            maskColor.lerp(Pal.gray, 0.5f);
+
             Sector launchSector = findLauncher(selected);
             if (launchSector == null) launchSector = selected.planet.sectors.get(selected.planet.startSector);
             GetTargetVector(launchSector, originSectorVector);
 
             GetTargetVector(selected, targetVector);
-
-            finalTargetVector.set(targetVector);
-            finalTargetVector.set(finalTargetVector.nor().scl(0.02f));
 
             initialAlpha = state.uiAlpha;
 

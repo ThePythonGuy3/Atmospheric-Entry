@@ -1,6 +1,6 @@
 package atmosphere;
 
-import arc.Events;
+import arc.*;
 import atmosphere.animation.Transitions;
 import atmosphere.input.InputRegister;
 import atmosphere.ui.*;
@@ -15,9 +15,13 @@ public class Atmosphere extends Mod
     @Override
     public void init()
     {
+        if (Vars.headless) return; // This is purely visual lol
+
         Events.on(EventType.ClientLoadEvent.class, e -> {
             InputRegister.Initialize();
 
+            Vars.ui.loadfrag = new CustomLoadingFragment();
+            Vars.ui.loadfrag.build(Core.scene.root);
             Vars.renderer.planets = new CustomPlanetRenderer();
             Vars.ui.planet = new CustomPlanetDialog();
         });
