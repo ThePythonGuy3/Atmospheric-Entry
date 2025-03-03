@@ -70,6 +70,7 @@ public class CustomPlanetDialog extends PlanetDialog
     private Field update, actions, stage, camerascale;
 
     private final FrameBuffer maskBuffer = new FrameBuffer();
+    private boolean loadingGame = false;
 
     public CustomPlanetDialog()
     {
@@ -262,19 +263,19 @@ public class CustomPlanetDialog extends PlanetDialog
             Seq.with(Blocks.junction, Blocks.mechanicalDrill, Blocks.conveyor, Blocks.duo, Items.copper, Items.lead).each(UnlockableContent::quietUnlock);
         }
 
-        transitions.Add(t -> {
+        transitions.AddInstant(() -> {
             canHide = false;
             shouldRenderGUI = false;
-            state.uiAlpha = Mathf.lerp(initialAlpha, 0f, Interp.pow2Out.apply(t));
-        }, 0.5f);
+        });
 
         transitions.Add(t -> {
-            shouldRenderSectors = false;
             InterpolateRotation(initialVector, targetVector, TransformTransition(t), state.camPos);
 
-            state.camDir.rotate(Vec3.Z, 2f);
-
             zoom = state.zoom = Mathf.lerp(initialZoom, zoomMidTarget, Interp.sineOut.apply(t));
+            if (t <= 0.1f)
+                state.uiAlpha = Mathf.lerp(initialAlpha, 0f, Interp.pow2Out.apply(t * 10f));
+            else
+                shouldRenderSectors = false;
         }, 3f);
 
         transitions.Add(t -> {
@@ -287,18 +288,17 @@ public class CustomPlanetDialog extends PlanetDialog
             }
         }, 3f);
 
-        boolean[] firstRun = new boolean[]{true};
         transitions.Add(t -> {
-            firstRun[0] = true;
             maskAlpha = Interp.pow2Out.apply(t);
         }, 2f);
 
+        transitions.AddInstant(() -> {
+            loadingGame = true;
+            LoadSector(selected);
+        });
+        transitions.AddWaitWhile(() -> loadingGame);
+
         transitions.Add(t -> {
-            if (firstRun[0])
-            {
-                LoadSector(selected);
-                firstRun[0] = false;
-            }
             try
             {
                 camerascale.set(renderer, 0.5f);
@@ -309,8 +309,8 @@ public class CustomPlanetDialog extends PlanetDialog
         }, 1f);
 
         transitions.Add(t -> {
-            firstRun[0] = true;
             globalAlpha = Mathf.lerp(1f, 0f, Interp.pow2Out.apply(t));
+
             try
             {
                 camerascale.set(renderer, Mathf.lerp(0.5f, 3.6f, Interp.sineOut.apply(t)));
@@ -320,16 +320,14 @@ public class CustomPlanetDialog extends PlanetDialog
             }
         }, 3f);
 
-        transitions.Add(t -> {
+        transitions.AddInstant(() -> {
             canHide = true;
-            if (firstRun[0])
-            {
-                hide();
-                firstRun[0] = false;
-            }
-        }, 0.5f);
+            hide();
+        });
 
-        transitions.Add(t -> {
+        transitions.AddWaitWhile(this::isShown);
+
+        transitions.AddInstant(() -> {
             fov = 60f;
             shouldRenderSectors = true;
             shouldRenderGUI = true;
@@ -338,10 +336,14 @@ public class CustomPlanetDialog extends PlanetDialog
             state.uiAlpha = initialAlpha;
             maskAlpha = 0f;
             globalAlpha = 1f;
-        }, 0.001f);
+        });
 
         Events.run(EventType.Trigger.universeDrawBegin, () -> {
             renderer.planets.cam.fov = fov;
+        });
+
+        Events.on(EventType.WorldLoadEndEvent.class, e -> {
+            loadingGame = false;
         });
     }
 
@@ -379,7 +381,12 @@ public class CustomPlanetDialog extends PlanetDialog
         maskBuffer.begin(Color.clear);
 
         float size = Math.max(width, height);
-        Draw.rect(Draw.wrap(assets.get("sprites/clouds.png", Texture.class)), w / 2f, h / 2f, size, size);
+        float scroll = Time.time / size;
+        scroll = (scroll - (int) scroll) * size;
+
+        Draw.color(Color.white, 1f - globalAlpha);
+        Draw.rect(Draw.wrap(assets.get("sprites/clouds.png", Texture.class)), w / 2f + scroll, h / 2f, size, size);
+        Draw.rect(Draw.wrap(assets.get("sprites/clouds.png", Texture.class)), w / 2f + scroll - size, h / 2f, size, size);
 
         maskBuffer.end();
         Draw.reset();
@@ -445,21 +452,6 @@ public class CustomPlanetDialog extends PlanetDialog
     public void addTech()
     {
         buttons.button("@techtree", Icon.tree, () -> ui.research.show()).size(200f, 54f).pad(2).bottom();
-    }
-
-    public void showOverview()
-    {
-        //TODO implement later if necessary
-        /*
-        sectors.captured = Captured Sectors
-        sectors.explored = Explored Sectors
-        sectors.production.total = Total Production
-        sectors.resources.total = Total Resources
-         */
-        var dialog = new BaseDialog("@overview");
-        dialog.addCloseButton();
-
-        dialog.add("@sectors.captured");
     }
 
     public void lookAt(Sector sector)
@@ -910,12 +902,6 @@ public class CustomPlanetDialog extends PlanetDialog
 
             readd[0].run();
         }).grow().scrollX(false);
-    }
-
-    public void lookAt(Sector sector, float alpha)
-    {
-        float len = state.camPos.len();
-        state.camPos.slerp(Tmp.v31.set(sector.tile.v).rotate(Vec3.Y, -sector.planet.getRotation()).setLength(len), alpha);
     }
 
     @Override
