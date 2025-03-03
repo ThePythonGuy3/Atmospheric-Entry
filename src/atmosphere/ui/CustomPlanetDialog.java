@@ -6,6 +6,7 @@ import arc.func.Cons;
 import arc.graphics.*;
 import arc.graphics.Texture.TextureFilter;
 import arc.graphics.g2d.*;
+import arc.graphics.gl.FrameBuffer;
 import arc.input.KeyCode;
 import arc.math.*;
 import arc.math.geom.Vec3;
@@ -16,6 +17,7 @@ import arc.scene.ui.*;
 import arc.scene.ui.layout.*;
 import arc.struct.*;
 import arc.util.*;
+import atmosphere.Shaders;
 import atmosphere.animation.Transitions;
 import mindustry.Vars;
 import mindustry.content.*;
@@ -26,7 +28,7 @@ import mindustry.game.*;
 import mindustry.game.Objectives.Objective;
 import mindustry.game.SectorInfo.ExportStat;
 import mindustry.gen.*;
-import mindustry.graphics.*;
+import mindustry.graphics.Pal;
 import mindustry.graphics.g3d.PlanetGrid;
 import mindustry.graphics.g3d.PlanetGrid.Ptile;
 import mindustry.input.Binding;
@@ -67,6 +69,8 @@ public class CustomPlanetDialog extends PlanetDialog
 
     private Field update, actions, stage, camerascale;
 
+    private final FrameBuffer maskBuffer = new FrameBuffer();
+
     public CustomPlanetDialog()
     {
         super();
@@ -81,8 +85,7 @@ public class CustomPlanetDialog extends PlanetDialog
             stage.setAccessible(true);
             camerascale = Renderer.class.getDeclaredField("camerascale");
             camerascale.setAccessible(true);
-        }
-        catch (NoSuchFieldException e)
+        } catch (NoSuchFieldException e)
         {
             Log.err("what");
         }
@@ -284,17 +287,17 @@ public class CustomPlanetDialog extends PlanetDialog
             }
         }, 3f);
 
-        boolean[] potato = new boolean[]{ true };
+        boolean[] firstRun = new boolean[]{true};
         transitions.Add(t -> {
-            potato[0] = true;
+            firstRun[0] = true;
             maskAlpha = Interp.pow2Out.apply(t);
         }, 2f);
 
         transitions.Add(t -> {
-            if (potato[0])
+            if (firstRun[0])
             {
                 LoadSector(selected);
-                potato[0] = false;
+                firstRun[0] = false;
             }
             try
             {
@@ -306,11 +309,11 @@ public class CustomPlanetDialog extends PlanetDialog
         }, 1f);
 
         transitions.Add(t -> {
-            potato[0] = true;
+            firstRun[0] = true;
             globalAlpha = Mathf.lerp(1f, 0f, Interp.pow2Out.apply(t));
             try
             {
-                camerascale.set(renderer, Mathf.lerp(0.5f, 4f, Interp.sineOut.apply(t)));
+                camerascale.set(renderer, Mathf.lerp(0.5f, 3.6f, Interp.sineOut.apply(t)));
             } catch (IllegalAccessException e)
             {
                 Log.err("no");
@@ -319,10 +322,10 @@ public class CustomPlanetDialog extends PlanetDialog
 
         transitions.Add(t -> {
             canHide = true;
-            if (potato[0])
+            if (firstRun[0])
             {
                 hide();
-                potato[0] = false;
+                firstRun[0] = false;
             }
         }, 0.5f);
 
@@ -361,27 +364,35 @@ public class CustomPlanetDialog extends PlanetDialog
     @Override
     public void draw()
     {
+        int w = Core.graphics.getWidth(), h = Core.graphics.getHeight();
+
+        buffer.resize(w, h);
+        buffer.begin(Color.clear);
+
+        setColor(Color.white);
+        super.draw();
+
+        buffer.end();
+        Draw.reset();
+
+        maskBuffer.resize(w, h);
+        maskBuffer.begin(Color.clear);
+
+        float size = Math.max(width, height);
+        Draw.rect(Draw.wrap(assets.get("sprites/clouds.png", Texture.class)), w / 2f, h / 2f, size, size);
+
+        maskBuffer.end();
+        Draw.reset();
+
         Draw.draw(Draw.z(), () -> {
-            buffer.resize(Core.graphics.getWidth(), Core.graphics.getHeight());
-            buffer.begin(Color.clear);
+            Shaders.maskShader.alpha = globalAlpha;
+            Shaders.maskShader.mask = maskBuffer.getTexture();
 
-            Fill.rect(width / 2f, 0, width / 2f, height);
-            setColor(Color.white);
-            super.draw();
+            Draw.shader(Shaders.maskShader);
 
-            buffer.end();
-            Draw.reset();
+            Draw.rect(Draw.wrap(buffer.getTexture()), width / 2f, height / 2f, width, -height);
 
-            Gl.clear(Gl.stencilBufferBit);
-            Draw.stencil(() -> {
-                Fill.circle(Core.graphics.getWidth() / 2f, Core.graphics.getHeight() / 2f, Core.graphics.getHeight() / 2f);
-            }, () -> {
-                setColor(Tmp.c1.set(Color.white).a(globalAlpha));
-                Draw.color(color);
-                Draw.rect(Draw.wrap(buffer.getTexture()), width / 2f, height / 2f, width, -height);
-            });
-
-            Draw.reset();
+            Draw.shader();
         });
     }
 
@@ -940,8 +951,7 @@ public class CustomPlanetDialog extends PlanetDialog
                 if (touchablility != null) this.touchable = touchablility.get();
                 Runnable updateV = (Runnable) update.get(this);
                 if (updateV != null) updateV.run();
-            }
-            catch (IllegalAccessException e)
+            } catch (IllegalAccessException e)
             {
                 Log.err("what");
             }

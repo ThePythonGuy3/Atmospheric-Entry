@@ -1,8 +1,6 @@
 package atmosphere.ui;
 
-import arc.Core;
 import arc.graphics.Gl;
-import arc.graphics.g2d.Draw;
 import arc.math.Angles;
 import arc.math.geom.Vec3;
 import arc.util.Tmp;
