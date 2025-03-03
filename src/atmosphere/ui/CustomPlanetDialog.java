@@ -9,7 +9,7 @@ import arc.graphics.g2d.*;
 import arc.graphics.gl.FrameBuffer;
 import arc.input.KeyCode;
 import arc.math.*;
-import arc.math.geom.Vec3;
+import arc.math.geom.*;
 import arc.scene.*;
 import arc.scene.event.*;
 import arc.scene.style.TextureRegionDrawable;
@@ -28,7 +28,7 @@ import mindustry.game.*;
 import mindustry.game.Objectives.Objective;
 import mindustry.game.SectorInfo.ExportStat;
 import mindustry.gen.*;
-import mindustry.graphics.Pal;
+import mindustry.graphics.*;
 import mindustry.graphics.g3d.PlanetGrid;
 import mindustry.graphics.g3d.PlanetGrid.Ptile;
 import mindustry.input.Binding;
@@ -63,7 +63,7 @@ public class CustomPlanetDialog extends PlanetDialog
     private Texture[] planetTextures;
     private Color maskColor = Color.white;
     private float maskAlpha = 0f;
-    private float globalAlpha = 1f;
+    private float globalAlpha = 1f, colorMaskAlpha = 0f;
 
     private boolean canHide = true;
 
@@ -71,6 +71,14 @@ public class CustomPlanetDialog extends PlanetDialog
 
     private final FrameBuffer maskBuffer = new FrameBuffer();
     private boolean loadingGame = false;
+
+    private float coreAngle = 0f, coreAngleNow = 0f, coreAlpha = 1f, coreScaleAlpha = 0f, coreScale = 0f;
+    private Vec2 corePos, startingCorePos, worldCorePos;
+    private CoreBlock.CoreBuild core;
+
+    private boolean drawCore = false, projectCore = false;
+
+    private static final Vec2 coreOffset = new Vec2(-20, -10);
 
     public CustomPlanetDialog()
     {
@@ -273,24 +281,26 @@ public class CustomPlanetDialog extends PlanetDialog
 
             zoom = state.zoom = Mathf.lerp(initialZoom, zoomMidTarget, Interp.sineOut.apply(t));
             if (t <= 0.1f)
-                state.uiAlpha = Mathf.lerp(initialAlpha, 0f, Interp.pow2Out.apply(t * 10f));
+                state.uiAlpha = Mathf.lerp(initialAlpha, 0f, Interp.smooth.apply(t * 10f));
             else
                 shouldRenderSectors = false;
         }, 3f);
 
         transitions.Add(t -> {
-            fov = Mathf.lerp(60f, 1f, Interp.pow5.apply(t));
-            zoom = state.zoom = Mathf.lerp(zoomMidTarget, zoomFinalTarget, Interp.pow2.apply(t));
+            fov = Mathf.lerp(60f, 1f, Interp.pow5In.apply(t));
+            zoom = state.zoom = Mathf.lerp(zoomMidTarget, zoomFinalTarget, Interp.pow5In.apply(t));
 
-            if (t > 0.8f)
+            if (t >= 0.8f)
             {
-                state.uiAlpha = Mathf.lerp(0f, 1f, Interp.pow5.apply((t - 0.8f) / 0.2f));
+                state.uiAlpha = Mathf.lerp(0f, 1f, Interp.smooth.apply((t - 0.8f) / 0.2f));
+
+                maskAlpha = t - 0.8f;
             }
         }, 3f);
 
         transitions.Add(t -> {
-            maskAlpha = Interp.pow2Out.apply(t);
-        }, 2f);
+            maskAlpha = Mathf.lerp(0.2f, 1f, Interp.pow2Out.apply(t));
+        }, 1f);
 
         transitions.AddInstant(() -> {
             loadingGame = true;
@@ -298,7 +308,11 @@ public class CustomPlanetDialog extends PlanetDialog
         });
         transitions.AddWaitWhile(() -> loadingGame);
 
-        transitions.Add(t -> {
+        transitions.AddWaitWhile(() -> player.bestCore() == null);
+        transitions.AddInstant(() ->
+        {
+            core = player.bestCore();
+
             try
             {
                 camerascale.set(renderer, 0.5f);
@@ -306,10 +320,52 @@ public class CustomPlanetDialog extends PlanetDialog
             {
                 Log.err("no");
             }
-        }, 1f);
+
+            startingCorePos = Vec2.ZERO.cpy();
+            corePos = startingCorePos.cpy();
+            coreAlpha = 0f;
+            drawCore = true;
+        });
 
         transitions.Add(t -> {
-            globalAlpha = Mathf.lerp(1f, 0f, Interp.pow2Out.apply(t));
+            if (t <= 0.5f)
+            {
+                float t2 = t / 0.5f;
+
+                coreAlpha = Mathf.lerp(0f, 1f, Interp.pow2.apply(t2));
+                coreScale = Mathf.lerp(0f, 1f, Interp.pow2.apply(t2));
+
+                Tmp.v1.set(startingCorePos);
+                corePos = Tmp.v1.lerp(coreOffset, Interp.pow2Out.apply(Math.min(1f, t2 / 0.5f))).lerp(Vec2.ZERO, Interp.pow2.apply(Math.max(0f, t2 / 0.5f - 1f))).cpy();
+            } else
+            {
+                corePos = Vec2.ZERO.cpy();
+            }
+            coreAngle = Mathf.lerp(360 * 4 + 135f, 0f, Interp.sineOut.apply(t));
+        }, 4f);
+
+        transitions.AddWaitWhileAction(() -> core.x < 0 || core.y < 0, t -> {
+            coreAngle = (float) Math.sin(t) * 15f;
+        });
+
+        transitions.AddInstant(() -> {
+            coreAngleNow = coreAngle;
+            coreScaleAlpha = 0f;
+            projectCore = true;
+        });
+
+        transitions.Add(t -> {
+            coreAngle = Mathf.slerp(coreAngleNow, 0f, Interp.pow2Out.apply(t));
+        }, 1.5f);
+
+        transitions.Add(t -> {
+            coreScaleAlpha = Mathf.lerp(0f, 1f, Interp.pow2.apply(t));
+            colorMaskAlpha = Mathf.lerp(0f, 1f, Interp.pow2Out.apply(t));
+
+            if (t >= 0.6f)
+            {
+                globalAlpha = Mathf.lerp(1f, 0f, Interp.pow2Out.apply((t - 0.6f) / 0.4f));
+            }
 
             try
             {
@@ -318,7 +374,11 @@ public class CustomPlanetDialog extends PlanetDialog
             {
                 Log.err("no");
             }
-        }, 3f);
+        }, 2.5f);
+
+        transitions.Add(t -> {
+            coreAlpha = Mathf.lerp(1f, 0f, Interp.smooth.apply(t));
+        }, 0.8f);
 
         transitions.AddInstant(() -> {
             canHide = true;
@@ -329,12 +389,14 @@ public class CustomPlanetDialog extends PlanetDialog
 
         transitions.AddInstant(() -> {
             fov = 60f;
+            projectCore = false;
             shouldRenderSectors = true;
             shouldRenderGUI = true;
             zoom = state.zoom = initialZoom;
             state.camPos.set(initialVector);
             state.uiAlpha = initialAlpha;
             maskAlpha = 0f;
+            colorMaskAlpha = 0f;
             globalAlpha = 1f;
         });
 
@@ -344,6 +406,14 @@ public class CustomPlanetDialog extends PlanetDialog
 
         Events.on(EventType.WorldLoadEndEvent.class, e -> {
             loadingGame = false;
+        });
+
+        Events.run(EventType.Trigger.update, () -> {
+            if (projectCore)
+            {
+                camera.position.x = core.x;
+                camera.position.y = core.y;
+            }
         });
     }
 
@@ -384,9 +454,10 @@ public class CustomPlanetDialog extends PlanetDialog
         float scroll = Time.time / size;
         scroll = (scroll - (int) scroll) * size;
 
-        Draw.color(Color.white, 1f - globalAlpha);
-        Draw.rect(Draw.wrap(assets.get("sprites/clouds.png", Texture.class)), w / 2f + scroll, h / 2f, size, size);
-        Draw.rect(Draw.wrap(assets.get("sprites/clouds.png", Texture.class)), w / 2f + scroll - size, h / 2f, size, size);
+        Draw.color(Color.white, colorMaskAlpha);
+        TextureRegion region = Draw.wrap(assets.get("sprites/clouds.png", Texture.class));
+        Draw.rect(region, w / 2f + scroll, h / 2f, size, size);
+        Draw.rect(region, w / 2f + scroll - size, h / 2f, size, size);
 
         maskBuffer.end();
         Draw.reset();
@@ -401,6 +472,45 @@ public class CustomPlanetDialog extends PlanetDialog
 
             Draw.shader();
         });
+
+        if (drawCore)
+        {
+            Draw.draw(Layer.max, () -> {
+                float x = corePos.x, y = corePos.y;
+
+                float coreSize = core.block.size * tilesize;
+
+                Draw.proj(camera);
+
+                if (projectCore)
+                {
+                    coreSize = Mathf.lerp(coreSize * renderer.getDisplayScale(), coreSize, coreScaleAlpha);
+                } else coreSize *= renderer.getDisplayScale();
+
+                coreSize *= coreScale;
+
+                x += camera.position.x;
+                y += camera.position.y;
+
+                Draw.color(Color.white, coreAlpha);
+                SpinSprite(core.block.region, x, y, coreSize, coreSize, coreAngle);
+
+                if(core.block.teamRegions[core.team.id] == core.block.teamRegion) Draw.color(core.team.color);
+                SpinSprite(core.block.teamRegions[core.team.id], x, y, coreSize, coreSize, coreAngle);
+
+                Draw.reset();
+            });
+        }
+    }
+
+    private void SpinSprite(TextureRegion region, float x, float y, float w, float h, float r)
+    {
+        float a = Draw.getColor().a;
+        r = Mathf.mod(r, 90f);
+        Draw.rect(region, x, y, w, h, r);
+        Draw.alpha(r / 90f*a);
+        Draw.rect(region, x, y, w, h, r - 90f);
+        Draw.alpha(a);
     }
 
     public void rebuildButtons()

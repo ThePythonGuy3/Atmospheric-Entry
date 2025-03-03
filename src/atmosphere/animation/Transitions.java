@@ -9,7 +9,7 @@ import mindustry.game.EventType;
 public class Transitions
 {
     private final Seq<Transition> transitions = new Seq<>();
-    private float time = 0f;
+    private float time = 0f, progressTime = 0f;
     private int progress = 0;
 
     private boolean isActive = false;
@@ -17,21 +17,31 @@ public class Transitions
     public void Add(Cons<Float> transition, float duration)
     {
         transitions.add(new Transition(transition, duration, false));
+        Stop();
     }
 
     public void AddInstant(Runnable action)
     {
         transitions.add(new Transition(t -> action.run(), 0f, true));
+        Stop();
     }
 
     public void AddWait(float duration)
     {
         transitions.add(new Transition(t -> {}, duration, false));
+        Stop();
     }
 
     public void AddWaitWhile(Boolp condition)
     {
-        transitions.add(new WaitAction(condition));
+        transitions.add(new WaitAction(condition, t -> {}));
+        Stop();
+    }
+
+    public void AddWaitWhileAction(Boolp condition, Cons<Float> action)
+    {
+        transitions.add(new WaitAction(condition, action));
+        Stop();
     }
 
     public void Start()
@@ -43,18 +53,31 @@ public class Transitions
         }
 
         time = 1f;
+        progressTime = 0f;
         progress = 0;
     }
 
     public boolean IsRunning()
     {
-        return time > 0f && progress < transitions.size;
+        return progress < transitions.size;
     }
 
     public void Stop()
     {
         time = 0f;
+        progressTime = 0f;
         progress = transitions.size;
+    }
+
+    public void Next()
+    {
+        if (progress < transitions.size - 1)
+        {
+            progress++;
+            time = 1f;
+            progressTime = 0f;
+        }
+        else Stop();
     }
 
     private void Update()
@@ -63,18 +86,17 @@ public class Transitions
         {
             Transition transition = transitions.get(progress);
 
-            transition.runnable.get(1f - time);
+            transition.runnable.get((transition instanceof WaitAction) ? progressTime : 1f - time);
+
+            progressTime += Time.delta;
 
             if (!(transition instanceof WaitAction)) time -= Time.delta / (transition.duration * 60f);
 
             if ((time < 0f || transition.instant) && !(transition instanceof WaitAction waitAction && waitAction.condition.get()))
             {
-                if (progress < transitions.size - 1)
-                {
-                    progress++;
-                    time = 1f;
-                }
-                else Stop();
+                if (!transition.instant) transition.runnable.get(1f);
+
+                Next();
             }
         }
     }
@@ -97,9 +119,9 @@ public class Transitions
     {
         private final Boolp condition;
 
-        public WaitAction(Boolp condition)
+        public WaitAction(Boolp condition, Cons<Float> action)
         {
-            super (t -> {}, 0f, true);
+            super (action, 0f, true);
 
             this.condition = condition;
         }

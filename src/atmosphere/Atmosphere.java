@@ -17,7 +17,6 @@ public class Atmosphere extends Mod
         Events.on(EventType.ClientLoadEvent.class, e -> {
             InputRegister.Initialize();
 
-            Core.assets.load(Vars.control);
             Vars.ui.loadfrag = new CustomLoadingFragment();
             Vars.ui.loadfrag.build(Core.scene.root);
             Vars.renderer.planets = new CustomPlanetRenderer();
